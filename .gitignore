@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# Alembic / DB
+alembic/versions/*.pyc
+
+# Local runtime
+*.log

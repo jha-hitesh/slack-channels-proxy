@@ -1,0 +1,6 @@
+apiVersion: v2
+name: slack-proxy
+description: Helm chart for deploying the Slack Proxy FastAPI service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

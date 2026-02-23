@@ -1,0 +1,74 @@
+# Slack Proxy Interaction Flow
+
+## Read Channel by Name
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User Client
+  participant P as Proxy API (FastAPI)
+  participant D as SQLite DB
+  participant S as Slack API
+
+  Note over P,S: On app startup: fetch channels from Slack only if DB cache is empty
+
+  U->>P: GET /channels/{name}
+  P->>P: normalize(name) = trim + lowercase
+  P->>D: select channel by workspace + normalized_name
+  alt Found in local DB
+    D-->>P: channel payload
+    P-->>U: 200 channel id + metadata (source=db)
+  else Missing in local DB
+    P-->>U: 404 channel not found in local cache
+  end
+```
+
+## Create Channel by Name
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User Client
+  participant P as Proxy API (FastAPI)
+  participant D as SQLite DB
+  participant S as Slack API
+
+  U->>P: POST /channels {name}
+  P->>S: conversations.create(name)
+  alt Created
+    S-->>P: created channel payload
+    P->>D: upsert workspace channel metadata
+    P-->>U: 200 channel id (source=slack)
+  else Already exists
+    S-->>P: name_taken/already_exists
+    P->>D: try acquire sync_lock
+    alt lock free OR lock stale (>10m)
+      D-->>P: lock acquired=true
+      P->>P: add background task(sync channels)
+      P->>D: read existing channel by name
+      alt existing in cache
+        D-->>P: channel record
+        P-->>U: 200 existing channel id (source=db)
+      else not in cache
+        D-->>P: no record
+        P-->>U: 200 sync queued (source=sync_queued)
+      end
+    else lock active and fresh
+      D-->>P: lock acquired=false
+      P-->>U: 200 sync in progress (source=sync_in_progress)
+    end
+  else Other Slack error
+    S-->>P: error
+    P-->>U: 502 proxy error
+  end
+```
+
+## Helm Deployment Flow
+```mermaid
+flowchart TD
+  A[Helm values configured] --> B[Create PVC for SQLite]
+  B --> C[Create Deployment]
+  C --> D[Mount PVC at /app/data]
+  C --> E[Inject env vars APP_* DOCS_* SLACK_* DATABASE_URL]
+  D --> F[App writes sqlite file data/slack_proxy.db]
+  E --> F
+  C --> G[Expose app with Service on port 8000]
+```

@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "slack-proxy.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "slack-proxy.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "slack-proxy.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "slack-proxy.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+          env:
+            - name: APP_ENV
+              value: {{ .Values.env.appEnv | quote }}
+            - name: APP_HOST
+              value: {{ .Values.env.appHost | quote }}
+            - name: APP_PORT
+              value: {{ .Values.env.appPort | quote }}
+            - name: DOCS_USERNAME
+              value: {{ .Values.env.docsUsername | quote }}
+            - name: DOCS_PASSWORD
+              value: {{ .Values.env.docsPassword | quote }}
+            - name: SLACK_BOT_TOKEN
+              value: {{ .Values.env.slackBotToken | quote }}
+            - name: SLACK_BASE_URL
+              value: {{ .Values.env.slackBaseUrl | quote }}
+            - name: SLACK_WORKSPACE_ID
+              value: {{ .Values.env.slackWorkspaceId | quote }}
+            - name: DATABASE_URL
+              value: {{ .Values.env.databaseUrl | quote }}
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: {{ .Values.persistence.mountPath }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: sqlite-data
+          persistentVolumeClaim:
+            claimName: {{ include "slack-proxy.fullname" . }}-sqlite

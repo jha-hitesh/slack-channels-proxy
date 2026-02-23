@@ -1,0 +1,31 @@
+replicaCount: 1
+
+image:
+  repository: slack-proxy
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+containerPort: 8000
+
+env:
+  appEnv: local
+  appHost: 0.0.0.0
+  appPort: "8000"
+  docsUsername: admin
+  docsPassword: admin
+  slackBotToken: ""
+  slackBaseUrl: https://slack.com/api
+  slackWorkspaceId: default-workspace
+  databaseUrl: sqlite:///./data/slack_proxy.db
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  mountPath: /app/data
