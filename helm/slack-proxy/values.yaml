@@ -30,6 +30,7 @@ env:
   docsPassword: admin
   slackBaseUrl: https://slack.com/api
   databaseUrl: sqlite:///./data/slack_proxy.db
+  syncLockStaleAfterMinutes: "10"
 
 persistence:
   enabled: true

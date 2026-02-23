@@ -13,14 +13,26 @@ def test_create_channel_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.api.routes.resolve_workspace_id", lambda bot_token: "T123")
     monkeypatch.setattr(
         "app.api.routes.create_channel_in_slack",
-        lambda db, workspace_id, name, bot_token: {"id": "C99", "name": "engineering", "source": "slack"},
+        lambda db, workspace_id, name, bot_token: {
+            "id": "C99",
+            "name": "engineering",
+            "source": "slack",
+            "exists": False,
+            "sync_status": None,
+        },
     )
 
     with TestClient(app) as client:
         response = client.post("/channels", json={"name": "Engineering"}, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
-    assert response.json() == {"id": "C99", "name": "engineering", "source": "slack"}
+    assert response.json() == {
+        "id": "C99",
+        "name": "engineering",
+        "source": "slack",
+        "exists": False,
+        "sync_status": None,
+    }
 
 
 def test_create_channel_exists_queues_background_sync(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,8 +54,14 @@ def test_create_channel_exists_queues_background_sync(monkeypatch: pytest.Monkey
     with TestClient(app) as client:
         response = client.post("/channels", json={"name": "engineering"}, headers=AUTH_HEADERS)
 
-    assert response.status_code == 200
-    assert response.json() == {"id": "", "name": "engineering", "source": "sync_queued"}
+    assert response.status_code == 404
+    assert response.json() == {
+        "id": "",
+        "name": "engineering",
+        "source": "sync_queued",
+        "exists": True,
+        "sync_status": "sync_queued",
+    }
     assert calls["count"] == 1
 
 
@@ -70,8 +88,14 @@ def test_create_channel_exists_does_not_queue_when_lock_active(monkeypatch: pyte
     with TestClient(app) as client:
         response = client.post("/channels", json={"name": "engineering"}, headers=AUTH_HEADERS)
 
-    assert response.status_code == 200
-    assert response.json() == {"id": "", "name": "engineering", "source": "sync_in_progress"}
+    assert response.status_code == 404
+    assert response.json() == {
+        "id": "",
+        "name": "engineering",
+        "source": "sync_in_progress",
+        "exists": True,
+        "sync_status": "sync_in_progress",
+    }
     assert calls["count"] == 0
 
 

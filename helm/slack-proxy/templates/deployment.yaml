@@ -40,6 +40,8 @@ spec:
               value: {{ .Values.env.slackBaseUrl | quote }}
             - name: DATABASE_URL
               value: {{ .Values.env.databaseUrl | quote }}
+            - name: SYNC_LOCK_STALE_AFTER_MINUTES
+              value: {{ .Values.env.syncLockStaleAfterMinutes | quote }}
           volumeMounts:
             - name: sqlite-data
               mountPath: {{ .Values.persistence.mountPath }}

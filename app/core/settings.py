@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     slack_base_url: str = "https://slack.com/api"
     database_url: str = "sqlite:///./data/slack_proxy.db"
+    sync_lock_stale_after_minutes: int = 10
 
 
 settings = Settings()

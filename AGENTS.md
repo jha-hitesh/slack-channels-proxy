@@ -49,3 +49,8 @@
 ## Git Operations
 - Before commit, stage all files in the current folder except ignored files.
 - Commit message format: `<ACTION>:<short description>` where action is `ADD`, `UPDATE`, or `FIX`.
+
+## ReadMe Update
+- the readme is for humans on why this project exists, what this project does and how it is useful to them
+- list out basic project setup options available for local as well as production
+- add contrinution guidelines including how to develop in this repo using coding agents

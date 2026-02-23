@@ -17,9 +17,9 @@ sequenceDiagram
   P->>D: select channel by workspace + normalized_name
   alt Found in local DB
     D-->>P: channel payload
-    P-->>U: 200 channel id + metadata (source=db)
+    P-->>U: 200 channel id + metadata (source=db, exists=true, sync_status)
   else Missing in local DB
-    P-->>U: 404 channel not found in local cache
+    P-->>U: 404 JSON {id:"", name, source:"db", exists:false, sync_status}
   end
 ```
 
@@ -40,7 +40,7 @@ sequenceDiagram
   alt Created
     S-->>P: created channel payload
     P->>D: upsert workspace channel metadata
-    P-->>U: 200 channel id (source=slack)
+    P-->>U: 200 channel id (source=slack, exists=false, sync_status=null)
   else Already exists
     S-->>P: name_taken/already_exists
     P->>D: try acquire sync_lock
@@ -50,14 +50,14 @@ sequenceDiagram
       P->>D: read existing channel by name
       alt existing in cache
         D-->>P: channel record
-        P-->>U: 200 existing channel id (source=db)
+        P-->>U: 200 existing channel id (source=db, exists=true, sync_status)
       else not in cache
         D-->>P: no record
-        P-->>U: 200 sync queued (source=sync_queued)
+        P-->>U: 404 sync queued (source=sync_queued, exists=true, sync_status=sync_queued)
       end
     else lock active and fresh
       D-->>P: lock acquired=false
-      P-->>U: 200 sync in progress (source=sync_in_progress)
+      P-->>U: 404 sync in progress (source=sync_in_progress, exists=true, sync_status=sync_in_progress)
     end
   else Other Slack error
     S-->>P: error
@@ -71,7 +71,7 @@ flowchart TD
   A[Helm values configured] --> B[Create PVC for SQLite]
   B --> C[Create Deployment]
   C --> D[Mount PVC at /app/data]
-  C --> E[Inject env vars APP_* DOCS_* SLACK_* DATABASE_URL]
+  C --> E[Inject env vars APP_* DOCS_* SLACK_* DATABASE_URL SYNC_LOCK_STALE_AFTER_MINUTES]
   D --> F[App writes sqlite file data/slack_proxy.db]
   E --> F
   C --> G[Expose app with Service on port 8000]

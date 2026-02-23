@@ -21,3 +21,6 @@ alembic/versions/*.pyc
 
 # Local SQLite data
 data/slack_proxy.db
+
+# Helm test-values.yaml
+helm/test-values.yaml

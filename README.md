@@ -1,33 +1,111 @@
 # Slack Proxy
 
-A backend proxy server between clients and Slack focused on channel operations, backed by local SQLite persistence for workspace channels.
+Slack Proxy is a lightweight service that exposes a stable API for Slack channel operations while caching workspace channel data in SQLite.
 
-## Features (Initial Scope)
-- `GET /channels/{name}` channel lookup by name.
-- `POST /channels` create channel by name.
-- Existing-channel handling on create:
-  - fetch all channels from Slack,
-  - upsert into local SQLite,
-  - return existing channel id.
+## Why This Project Exists
+- Give internal tools a simple, controlled API for Slack channel reads/creates.
+- Reduce repeated Slack lookups by persisting workspace channel records locally.
+- Provide a predictable backend pattern (FastAPI + SQLite + Docker) that is easy to run and extend.
+
+## What It Does
+- `GET /channels/{name}`: returns channel info by name from local persistence for the calling workspace.
+- `POST /channels`: creates a channel by name through Slack API.
+- Existing channel create behavior:
+  - fetches channels from Slack,
+  - upserts records into SQLite,
+  - returns the existing channel id.
+- Protects Swagger UI and `openapi.json` with Basic Auth.
+
+## Why It Is Useful
+- Faster, safer integration point than coupling every client directly to Slack endpoints.
+- Local channel cache supports repeat reads and sync recovery patterns.
+- Easy to deploy locally for development and to container platforms for production.
 
 ## Tech Stack
 - Python 3.11
 - FastAPI
-- SQLite (local persistence for workspace channels)
-- Alembic (migrations)
-- Docker Compose for local development
-- `uv` for Python dependency management
+- SQLite
+- Alembic
+- `uv`
+- Docker / Docker Compose
 
-## Planned Project Structure
+## Environment Configuration
+Create your environment file:
+```bash
+cp .env.example .env
+```
+
+Key variables:
+- `SLACK_BASE_URL` (optional, default: `https://slack.com/api`)
+- `DATABASE_URL` (optional, default: `sqlite:///./data/slack_proxy.db`)
+- `SYNC_LOCK_STALE_AFTER_MINUTES` (optional, default: `10`)
+- `DOCS_USERNAME` (required for API docs auth)
+- `DOCS_PASSWORD` (required for API docs auth)
+
+Slack bot token is passed per request via `Authorization: Bearer <token>`.
+
+## Setup Options
+
+### Local Setup (Docker Compose)
+1. Build and start:
+```bash
+docker-compose up --build -d
+```
+2. Check logs:
+```bash
+docker-compose logs --no-color --tail=100 app
+```
+3. Run tests:
+```bash
+docker-compose run --rm --build app uv run pytest
+```
+
+### Local Setup (Without Docker)
+1. Install dependencies:
+```bash
+uv sync
+```
+2. Run the API:
+```bash
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+3. Run tests:
+```bash
+uv run pytest
+```
+
+### Production Setup Options
+- Container runtime:
+  - Build image from `Dockerfile`.
+  - Run with environment variables and a persistent volume mounted at `/app/data` for SQLite.
+- Kubernetes via Helm:
+  - Chart: `helm/slack-proxy`
+  - Example:
+```bash
+helm upgrade --install slack-proxy ./helm/slack-proxy \
+  --set image.repository=<your-image-repo> \
+  --set image.tag=<your-image-tag>
+```
+  - Optional ingress:
+```bash
+helm upgrade --install slack-proxy ./helm/slack-proxy \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=your-host.example.com
+```
+
+## API Behavior Summary
+- `GET /channels/{name}`
+  - resolves workspace from Slack `auth.test` using bearer token.
+  - serves persisted channel info for that workspace by channel name.
+  - returns `404` on local miss.
+- `POST /channels`
+  - resolves workspace from Slack `auth.test`.
+  - creates channel when absent.
+  - on "already exists", syncs workspace channels from Slack, upserts local DB, then returns existing id.
+
+## Repository Layout
 ```text
 .
-├── AGENTS.md
-├── plan.md
-├── flow.md
-├── README.md
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
 ├── alembic/
 ├── app/
 │   ├── api/
@@ -37,75 +115,29 @@ A backend proxy server between clients and Slack focused on channel operations, 
 │   ├── schemas/
 │   ├── scripts/
 │   └── utils/
-└── tests/
+├── tests/
+├── flow.md
+├── plan.md
+└── AGENTS.md
 ```
 
-## Local Development Setup
-1. Create environment file:
-```bash
-cp .env.example .env
-```
-
-2. Set required environment variables in `.env`:
-- `SLACK_BASE_URL` (optional, defaults to `https://slack.com/api`)
-- `DATABASE_URL` (default: `sqlite:///./data/slack_proxy.db`)
-- `DOCS_USERNAME`
-- `DOCS_PASSWORD`
-
-Slack bot tokens are read per request from `Authorization: Bearer <token>`.
-
-3. Start the stack:
+## Contributing
+- Fork/branch from the latest default branch.
+- Keep changes small and tied to a specific feature or fix.
+- Add or update tests with behavior changes.
+- Ensure Docker-based test flow passes before opening a PR:
 ```bash
 docker-compose up --build -d
-```
-This mounts `./data` into the app container and persists the SQLite file at `data/slack_proxy.db`.
-
-4. Check service logs:
-```bash
 docker-compose logs --no-color --tail=100 app
-```
-
-## Testing
-Run tests in the app container:
-```bash
 docker-compose run --rm --build app uv run pytest
 ```
+- Use commit format: `<ACTION>:<short description>` where action is `ADD`, `UPDATE`, or `FIX`.
 
-Target test coverage for initial implementation:
-- local DB hit/miss behavior for `GET /channels/{name}`
-- create success and already-exists flow for `POST /channels`
-- SQLite upsert behavior after Slack list sync
-- docs auth protection
-
-## API Behavior Summary
-- `GET /channels/{name}`
-  - resolves workspace from Slack `auth.test` using the bearer token.
-  - returns local persisted channel for that workspace if available.
-  - on local miss, returns 404.
-- `POST /channels`
-  - resolves workspace from Slack `auth.test` using the bearer token.
-  - creates channel when absent.
-  - if channel exists, performs Slack full-channel sync for that workspace, upserts local DB, and returns existing channel id.
-
-## Current Status
-This repository is initialized with planning and workflow documents and starter app structure.
-
-## Helm Deployment
-Chart path:
-- `helm/slack-proxy`
-
-Basic install:
-```bash
-helm upgrade --install slack-proxy ./helm/slack-proxy \
-  --set image.repository=<your-image-repo> \
-  --set image.tag=<your-image-tag>
-```
-
-Notes:
-- The chart creates one Deployment and one PVC-backed volume mounted at `/app/data` for SQLite persistence.
-- Default DB path is `sqlite:///./data/slack_proxy.db`, which maps to the mounted `/app/data/slack_proxy.db`.
-- You can override Slack env vars using:
-  - `env.slackBaseUrl`
-- To expose via Ingress:
-  - `--set ingress.enabled=true`
-  - `--set ingress.hosts[0].host=your-host.example.com`
+## Developing With Coding Agents
+- Read `AGENTS.md` before starting; it defines architecture, workflow, and test requirements.
+- For behavior changes:
+  - update `plan.md`,
+  - update `flow.md` (use fenced `mermaid` diagrams),
+  - implement code and tests,
+  - run the full test loop until green.
+- Do not bypass API docs auth, Slack integration rules, or SQLite persistence defaults without updating docs and tests.

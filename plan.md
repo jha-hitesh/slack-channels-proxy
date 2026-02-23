@@ -174,6 +174,46 @@ Use the official Python Slack SDK (`slack_sdk.WebClient`) with built-in rate-lim
   - existing-channel error does not queue extra tasks while lock is active.
   - stale lock older than 10 minutes can be reacquired.
 
+## Feature Plan: Channel Response Metadata
+
+### Objective
+Expose explicit channel existence and workspace sync status metadata in channel API responses.
+
+### Subtasks
+
+#### M1) Response schema extension
+- Add `exists: bool` and `sync_status: sync_queued | sync_in_progress | null` to `ChannelResponse`.
+- Keep existing `id`, `name`, and `source` fields.
+- Test cases:
+  - GET response includes `exists=true` and `sync_status`.
+  - POST created response includes `exists=false`.
+
+#### M2) Sync status derivation
+- Read sync status from `sync_locks` for workspace-level status.
+- Treat active fresh lock as `sync_in_progress`; unlocked/stale lock as `null`.
+- Use `sync_queued` for the create existing-channel path when lock is newly acquired and background sync is queued.
+- Test cases:
+  - existing-channel create with free lock returns `sync_queued`.
+  - existing-channel create with active lock returns `sync_in_progress`.
+  - GET while active lock exists returns `sync_in_progress`.
+
+#### M3) Not-found JSON contract
+- Return explicit `404` JSON payloads using channel response structure for not-found outcomes.
+- Apply in both channel APIs:
+  - `GET /channels/{name}` cache miss.
+  - `POST /channels` when Slack reports exists but cache lookup still misses.
+- Test cases:
+  - GET miss returns `404` with `{id, name, source, exists, sync_status}`.
+  - POST exists-but-missing-id returns `404` with sync status metadata.
+
+#### M4) Configurable sync-lock staleness window
+- Make sync lock staleness configurable via env var `SYNC_LOCK_STALE_AFTER_MINUTES`.
+- Default to `10` when the env var is not provided.
+- Expose the setting in Helm values and deployment environment.
+- Test cases:
+  - lock scheduling and sync status checks use configured stale window.
+  - helm deployment renders `SYNC_LOCK_STALE_AFTER_MINUTES` env var.
+
 ### Task D: Docs protection
 - Deliverables:
   - basic auth guard for docs/openapi routes.

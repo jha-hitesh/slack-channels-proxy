@@ -58,3 +58,23 @@ def release_sync_lock(db: Session, workspace_id: str) -> None:
     record.locked_at = None
     db.commit()
     logger.info("crud_release_sync_lock workspace_id=%s released=%s", workspace_id, True)
+
+
+def get_sync_status(
+    db: Session,
+    workspace_id: str,
+    stale_after_minutes: int = 10,
+) -> str | None:
+    query = select(SyncLock).where(SyncLock.workspace_id == workspace_id)
+    record = db.execute(query).scalar_one_or_none()
+    if record is None or not record.is_locked:
+        logger.info("crud_get_sync_status workspace_id=%s sync_status=%s reason=unlocked", workspace_id, None)
+        return None
+
+    stale_before = datetime.utcnow() - timedelta(minutes=stale_after_minutes)
+    if record.locked_at is None or record.locked_at <= stale_before:
+        logger.info("crud_get_sync_status workspace_id=%s sync_status=%s reason=stale_lock", workspace_id, None)
+        return None
+
+    logger.info("crud_get_sync_status workspace_id=%s sync_status=%s", workspace_id, "sync_in_progress")
+    return "sync_in_progress"

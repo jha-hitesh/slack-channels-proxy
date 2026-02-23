@@ -10,7 +10,7 @@ from app.clients.slack import (
 )
 from app.core.db import SessionLocal
 from app.core.settings import settings
-from app.cruds.sync_locks import release_sync_lock, try_acquire_sync_lock
+from app.cruds.sync_locks import get_sync_status, release_sync_lock, try_acquire_sync_lock
 from app.cruds.workspace_channels import count_channels, get_channel_by_name, upsert_channel
 from app.schemas.channel import ChannelResponse
 from app.utils.channel_names import normalize_channel_name
@@ -99,7 +99,13 @@ def get_channel_by_name_from_db(db: Session, workspace_id: str, name: str) -> Ch
     if db_channel is None:
         raise ChannelNotFoundError(f"Channel '{normalized_name}' was not found in local cache")
 
-    return ChannelResponse(id=db_channel.channel_id, name=db_channel.name, source="db")
+    return ChannelResponse(
+        id=db_channel.channel_id,
+        name=db_channel.name,
+        source="db",
+        exists=True,
+        sync_status=get_workspace_sync_status(db=db, workspace_id=workspace_id),
+    )
 
 
 def create_channel_in_slack(db: Session, workspace_id: str, name: str, bot_token: str) -> ChannelResponse:
@@ -117,11 +123,29 @@ def create_channel_in_slack(db: Session, workspace_id: str, name: str, bot_token
         name=channel["name"],
         is_archived=channel.get("is_archived", False),
     )
-    return ChannelResponse(id=persisted.channel_id, name=persisted.name, source="slack")
+    return ChannelResponse(
+        id=persisted.channel_id,
+        name=persisted.name,
+        source="slack",
+        exists=False,
+        sync_status=get_workspace_sync_status(db=db, workspace_id=workspace_id),
+    )
 
 
 def try_schedule_background_sync(db: Session, workspace_id: str) -> bool:
-    return try_acquire_sync_lock(db=db, workspace_id=workspace_id, stale_after_minutes=10)
+    return try_acquire_sync_lock(
+        db=db,
+        workspace_id=workspace_id,
+        stale_after_minutes=settings.sync_lock_stale_after_minutes,
+    )
+
+
+def get_workspace_sync_status(db: Session, workspace_id: str) -> str | None:
+    return get_sync_status(
+        db=db,
+        workspace_id=workspace_id,
+        stale_after_minutes=settings.sync_lock_stale_after_minutes,
+    )
 
 
 def run_background_channel_sync(workspace_id: str, bot_token: str) -> None:
@@ -150,6 +174,7 @@ __all__ = [
     "SlackUpstreamError",
     "WorkspaceResolutionError",
     "create_channel_in_slack",
+    "get_workspace_sync_status",
     "get_channel_by_name_from_db",
     "resolve_workspace_id",
     "run_background_channel_sync",

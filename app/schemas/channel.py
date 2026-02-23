@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -9,3 +11,5 @@ class ChannelResponse(BaseModel):
     id: str
     name: str
     source: str
+    exists: bool
+    sync_status: Literal["sync_queued", "sync_in_progress"] | None = None
