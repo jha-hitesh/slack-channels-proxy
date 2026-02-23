@@ -36,12 +36,8 @@ spec:
               value: {{ .Values.env.docsUsername | quote }}
             - name: DOCS_PASSWORD
               value: {{ .Values.env.docsPassword | quote }}
-            - name: SLACK_BOT_TOKEN
-              value: {{ .Values.env.slackBotToken | quote }}
             - name: SLACK_BASE_URL
               value: {{ .Values.env.slackBaseUrl | quote }}
-            - name: SLACK_WORKSPACE_ID
-              value: {{ .Values.env.slackWorkspaceId | quote }}
             - name: DATABASE_URL
               value: {{ .Values.env.databaseUrl | quote }}
           volumeMounts:

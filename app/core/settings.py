@@ -11,9 +11,7 @@ class Settings(BaseSettings):
     docs_username: str = "admin"
     docs_password: str = "admin"
 
-    slack_bot_token: str = ""
     slack_base_url: str = "https://slack.com/api"
-    slack_workspace_id: str = "default-workspace"
     database_url: str = "sqlite:///./data/slack_proxy.db"
 
 

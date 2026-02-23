@@ -9,9 +9,10 @@ sequenceDiagram
   participant D as SQLite DB
   participant S as Slack API
 
-  Note over P,S: On app startup: fetch channels from Slack only if DB cache is empty
-
   U->>P: GET /channels/{name}
+  U->>P: Authorization: Bearer xoxb-...
+  P->>S: auth.test()
+  S-->>P: team_id (workspace_id)
   P->>P: normalize(name) = trim + lowercase
   P->>D: select channel by workspace + normalized_name
   alt Found in local DB
@@ -31,6 +32,9 @@ sequenceDiagram
   participant D as SQLite DB
   participant S as Slack API
 
+  U->>P: Authorization: Bearer xoxb-...
+  P->>S: auth.test()
+  S-->>P: team_id (workspace_id)
   U->>P: POST /channels {name}
   P->>S: conversations.create(name)
   alt Created
@@ -57,7 +61,7 @@ sequenceDiagram
     end
   else Other Slack error
     S-->>P: error
-    P-->>U: 502 proxy error
+    P-->>U: 502 proxy error + upstream reason
   end
 ```
 
@@ -71,4 +75,30 @@ flowchart TD
   D --> F[App writes sqlite file data/slack_proxy.db]
   E --> F
   C --> G[Expose app with Service on port 8000]
+  G --> H{Ingress enabled?}
+  H -->|No| I[Cluster-internal service access]
+  H -->|Yes| J[Create Ingress host/path routes to Service]
+```
+
+## Slack SDK Request Flow
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as SlackClient
+  participant W as slack_sdk.WebClient
+  participant S as Slack API
+
+  C->>W: api_call(method, path, params)
+  W->>W: RateLimitErrorRetryHandler(max_retry_count=5)
+  alt 429 responses before max retries
+    W->>S: retry request
+  end
+  alt Successful response
+    S-->>W: ok=true payload
+    W-->>C: SlackResponse
+  else Slack API error
+    S-->>W: ok=false + error code
+    W-->>C: SlackApiError
+    C->>C: map to domain error
+  end
 ```

@@ -5,10 +5,9 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from app.api.routes import router as api_router
-from app.core.db import SessionLocal, init_db
+from app.core.db import init_db
 from app.core.docs_auth import verify_docs_auth
 from app.core.settings import settings
-from app.services.channels import SlackUpstreamError, sync_channels_from_slack_if_empty
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,25 +30,7 @@ app.include_router(api_router)
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
-    sync_outcome = "ok"
-    sync_triggered = False
-    synced_channels = 0
-    with SessionLocal() as db:
-        try:
-            sync_triggered, synced_channels = sync_channels_from_slack_if_empty(
-                db=db,
-                workspace_id=settings.slack_workspace_id,
-            )
-        except SlackUpstreamError:
-            sync_outcome = "upstream_error"
-            logger.exception("startup_channel_sync_failed")
     logger.info("startup_completed env=%s database_url=%s", settings.app_env, settings.database_url)
-    logger.info(
-        "startup_channel_sync_completed outcome=%s sync_triggered=%s synced_channels=%s",
-        sync_outcome,
-        sync_triggered,
-        synced_channels,
-    )
 
 
 @app.get("/docs", dependencies=[Depends(verify_docs_auth)], response_class=HTMLResponse)

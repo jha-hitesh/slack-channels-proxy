@@ -4,18 +4,20 @@ from fastapi.testclient import TestClient
 from app.core.db import SessionLocal
 from app.cruds.sync_locks import try_acquire_sync_lock
 
+AUTH_HEADERS = {"Authorization": "Bearer xoxb-test-token"}
+
 
 def test_create_channel_success(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.main import app
 
-    monkeypatch.setattr("app.main.sync_channels_from_slack_if_empty", lambda db, workspace_id: (False, 0))
+    monkeypatch.setattr("app.api.routes.resolve_workspace_id", lambda bot_token: "T123")
     monkeypatch.setattr(
         "app.api.routes.create_channel_in_slack",
-        lambda db, workspace_id, name: {"id": "C99", "name": "engineering", "source": "slack"},
+        lambda db, workspace_id, name, bot_token: {"id": "C99", "name": "engineering", "source": "slack"},
     )
 
     with TestClient(app) as client:
-        response = client.post("/channels", json={"name": "Engineering"})
+        response = client.post("/channels", json={"name": "Engineering"}, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"id": "C99", "name": "engineering", "source": "slack"}
@@ -27,18 +29,18 @@ def test_create_channel_exists_queues_background_sync(monkeypatch: pytest.Monkey
 
     calls = {"count": 0}
 
-    def fake_background_task(workspace_id: str) -> None:
+    def fake_background_task(workspace_id: str, bot_token: str) -> None:
         calls["count"] += 1
 
-    monkeypatch.setattr("app.main.sync_channels_from_slack_if_empty", lambda db, workspace_id: (False, 0))
+    monkeypatch.setattr("app.api.routes.resolve_workspace_id", lambda bot_token: "T123")
     monkeypatch.setattr(
         "app.api.routes.create_channel_in_slack",
-        lambda db, workspace_id, name: (_ for _ in ()).throw(ChannelAlreadyExistsError("exists")),
+        lambda db, workspace_id, name, bot_token: (_ for _ in ()).throw(ChannelAlreadyExistsError("exists")),
     )
     monkeypatch.setattr("app.api.routes.run_background_channel_sync", fake_background_task)
 
     with TestClient(app) as client:
-        response = client.post("/channels", json={"name": "engineering"})
+        response = client.post("/channels", json={"name": "engineering"}, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"id": "", "name": "engineering", "source": "sync_queued"}
@@ -51,23 +53,53 @@ def test_create_channel_exists_does_not_queue_when_lock_active(monkeypatch: pyte
 
     calls = {"count": 0}
 
-    def fake_background_task(workspace_id: str) -> None:
+    def fake_background_task(workspace_id: str, bot_token: str) -> None:
         calls["count"] += 1
 
-    monkeypatch.setattr("app.main.sync_channels_from_slack_if_empty", lambda db, workspace_id: (False, 0))
+    monkeypatch.setattr("app.api.routes.resolve_workspace_id", lambda bot_token: "T123")
     monkeypatch.setattr(
         "app.api.routes.create_channel_in_slack",
-        lambda db, workspace_id, name: (_ for _ in ()).throw(ChannelAlreadyExistsError("exists")),
+        lambda db, workspace_id, name, bot_token: (_ for _ in ()).throw(ChannelAlreadyExistsError("exists")),
     )
     monkeypatch.setattr("app.api.routes.run_background_channel_sync", fake_background_task)
 
     with SessionLocal() as db:
-        acquired = try_acquire_sync_lock(db=db, workspace_id="default-workspace")
+        acquired = try_acquire_sync_lock(db=db, workspace_id="T123")
         assert acquired is True
 
     with TestClient(app) as client:
-        response = client.post("/channels", json={"name": "engineering"})
+        response = client.post("/channels", json={"name": "engineering"}, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"id": "", "name": "engineering", "source": "sync_in_progress"}
     assert calls["count"] == 0
+
+
+def test_create_channel_requires_authorization_header() -> None:
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.post("/channels", json={"name": "engineering"})
+
+    assert response.status_code == 401
+    assert "authorization" in response.json()["detail"].lower()
+
+
+def test_create_channel_surfaces_upstream_error_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.main import app
+    from app.services.channels import SlackUpstreamError
+
+    monkeypatch.setattr("app.api.routes.resolve_workspace_id", lambda bot_token: "T123")
+
+    def raise_upstream_error(db, workspace_id: str, name: str, bot_token: str) -> dict:
+        raise SlackUpstreamError("Slack API returned error: internal_error")
+
+    monkeypatch.setattr("app.api.routes.create_channel_in_slack", raise_upstream_error)
+
+    with TestClient(app) as client:
+        response = client.post("/channels", json={"name": "engineering"}, headers=AUTH_HEADERS)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Slack upstream request failed: Slack API returned error: internal_error"
+    )

@@ -47,11 +47,12 @@ cp .env.example .env
 ```
 
 2. Set required environment variables in `.env`:
-- `SLACK_BOT_TOKEN`
 - `SLACK_BASE_URL` (optional, defaults to `https://slack.com/api`)
 - `DATABASE_URL` (default: `sqlite:///./data/slack_proxy.db`)
 - `DOCS_USERNAME`
 - `DOCS_PASSWORD`
+
+Slack bot tokens are read per request from `Authorization: Bearer <token>`.
 
 3. Start the stack:
 ```bash
@@ -78,11 +79,13 @@ Target test coverage for initial implementation:
 
 ## API Behavior Summary
 - `GET /channels/{name}`
-  - returns local persisted channel if available.
-  - on local miss, fetches from Slack and upserts local DB.
+  - resolves workspace from Slack `auth.test` using the bearer token.
+  - returns local persisted channel for that workspace if available.
+  - on local miss, returns 404.
 - `POST /channels`
+  - resolves workspace from Slack `auth.test` using the bearer token.
   - creates channel when absent.
-  - if channel exists, performs Slack full-channel sync, upserts local DB, and returns existing channel id.
+  - if channel exists, performs Slack full-channel sync for that workspace, upserts local DB, and returns existing channel id.
 
 ## Current Status
 This repository is initialized with planning and workflow documents and starter app structure.
@@ -95,8 +98,7 @@ Basic install:
 ```bash
 helm upgrade --install slack-proxy ./helm/slack-proxy \
   --set image.repository=<your-image-repo> \
-  --set image.tag=<your-image-tag> \
-  --set env.slackBotToken=<your-slack-bot-token>
+  --set image.tag=<your-image-tag>
 ```
 
 Notes:
@@ -104,4 +106,6 @@ Notes:
 - Default DB path is `sqlite:///./data/slack_proxy.db`, which maps to the mounted `/app/data/slack_proxy.db`.
 - You can override Slack env vars using:
   - `env.slackBaseUrl`
-  - `env.slackWorkspaceId`
+- To expose via Ingress:
+  - `--set ingress.enabled=true`
+  - `--set ingress.hosts[0].host=your-host.example.com`

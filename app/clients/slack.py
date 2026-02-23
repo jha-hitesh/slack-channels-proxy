@@ -1,8 +1,9 @@
 from collections.abc import Iterator
 import logging
-import time
 
-import httpx
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError, SlackRequestError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from app.utils.channel_names import normalize_channel_name
 
@@ -21,6 +22,10 @@ class SlackUpstreamError(SlackError):
     pass
 
 
+class SlackUnauthorizedError(SlackUpstreamError):
+    pass
+
+
 class SlackChannelExistsError(SlackUpstreamError):
     pass
 
@@ -31,20 +36,29 @@ class SlackClient:
         bot_token: str,
         base_url: str,
         timeout_seconds: float = 10.0,
-        max_429_retries: int = 3,
-        retry_delay_seconds: float = 1.0,
+        max_429_retries: int = 5,
     ) -> None:
         self.bot_token = bot_token
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_429_retries = max_429_retries
-        self.retry_delay_seconds = retry_delay_seconds
+
+        ssl_context = None
+        rate_limit_handler = RateLimitErrorRetryHandler(max_retry_count=self.max_429_retries)
+
+        self.client = WebClient(
+            token=self.bot_token,
+            base_url=f"{self.base_url}/",
+            timeout=self.timeout_seconds,
+            ssl=ssl_context,
+            retry_handlers=[rate_limit_handler],
+        )
+
         logger.info(
-            "slack_client_init base_url=%s timeout_seconds=%s max_429_retries=%s retry_delay_seconds=%s token_configured=%s",
+            "slack_client_init base_url=%s timeout_seconds=%s max_429_retries=%s token_configured=%s",
             self.base_url,
             self.timeout_seconds,
             self.max_429_retries,
-            self.retry_delay_seconds,
             bool(self.bot_token),
         )
 
@@ -52,79 +66,46 @@ class SlackClient:
         status_code: int | None = None
         outcome = "unknown"
         error_code: str | None = None
-        attempt = 0
+
         try:
             if not self.bot_token:
                 outcome = "missing_token"
                 raise SlackUpstreamError("Slack bot token is not configured")
 
-            url = f"{self.base_url}/{path.lstrip('/')}"
-            headers = {
-                "Authorization": f"Bearer {self.bot_token}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            }
+            payload = self.client.api_call(
+                api_method=path.lstrip("/"),
+                http_verb=method.upper(),
+                params=params,
+            )
+            status_code = payload.status_code
+            outcome = "ok"
+            payload_data = getattr(payload, "data", payload)
+            if not isinstance(payload_data, dict):
+                raise SlackUpstreamError("Slack response payload is invalid")
+            return payload_data
+        except SlackApiError as exc:
+            status_code = exc.response.status_code
+            error_code = exc.response.get("error", "unknown_error")
+            if error_code in {"invalid_auth", "not_authed", "account_inactive", "token_revoked"}:
+                outcome = "unauthorized"
+                raise SlackUnauthorizedError("Slack token is invalid or unauthorized") from exc
+            if error_code in {"name_taken", "already_exists"}:
+                outcome = "channel_exists"
+                raise SlackChannelExistsError("Slack channel already exists") from exc
 
-            while True:
-                attempt += 1
-                response = httpx.request(
-                    method,
-                    url,
-                    params=params,
-                    headers=headers,
-                    timeout=self.timeout_seconds,
-                )
-                status_code = response.status_code
-                if status_code == 429:
-                    retries_remaining = self.max_429_retries - (attempt - 1)
-                    if retries_remaining <= 0:
-                        outcome = "rate_limited_exhausted"
-                        raise SlackUpstreamError("Slack rate limit exceeded after retries")
-                    retry_after_header = response.headers.get("Retry-After")
-                    try:
-                        retry_after = (
-                            float(retry_after_header)
-                            if retry_after_header is not None
-                            else self.retry_delay_seconds
-                        )
-                    except ValueError:
-                        retry_after = self.retry_delay_seconds
-                    retry_after = max(retry_after, 0.0)
-                    logger.warning(
-                        "slack_request_rate_limited path=%s attempt=%s retry_after=%s retries_remaining=%s",
-                        path,
-                        attempt,
-                        retry_after,
-                        retries_remaining,
-                    )
-                    time.sleep(retry_after)
-                    continue
-
-                response.raise_for_status()
-                payload = response.json()
-
-                if not payload.get("ok", False):
-                    error_code = payload.get("error", "unknown_error")
-                    if error_code in {"name_taken", "already_exists"}:
-                        outcome = "channel_exists"
-                        raise SlackChannelExistsError("Slack channel already exists")
-                    outcome = "slack_api_error"
-                    raise SlackUpstreamError(f"Slack API returned error: {error_code}")
-
-                outcome = "ok"
-                return payload
-        except (httpx.HTTPError, ValueError) as exc:
-            if outcome == "unknown":
-                outcome = "request_failed"
-            raise SlackUpstreamError("Slack request failed") from exc
+            outcome = "slack_api_error"
+            raise SlackUpstreamError(f"Slack API returned error: {error_code}") from exc
+        except (SlackRequestError, ValueError) as exc:
+            outcome = "request_failed"
+            raise SlackUpstreamError(f"Slack request failed: {exc}") from exc
         finally:
             logger.info(
-                "slack_request method=%s path=%s status_code=%s outcome=%s error_code=%s attempts=%s",
+                "slack_request method=%s path=%s status_code=%s outcome=%s error_code=%s",
                 method,
                 path,
                 status_code,
                 outcome,
                 error_code,
-                attempt,
             )
 
     def iter_channels(self) -> Iterator[dict]:
@@ -194,3 +175,9 @@ class SlackClient:
         if not isinstance(channel, dict):
             raise SlackUpstreamError("Slack create channel response missing channel payload")
         return channel
+
+    def auth_test(self) -> dict:
+        payload = self._request("GET", "/auth.test")
+        if not isinstance(payload, dict):
+            raise SlackUpstreamError("Slack auth test response is invalid")
+        return payload
