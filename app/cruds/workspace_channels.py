@@ -26,6 +26,21 @@ def get_channel_by_name(db: Session, workspace_id: str, name: str) -> WorkspaceC
     return record
 
 
+def get_channel_by_id(db: Session, workspace_id: str, channel_id: str) -> WorkspaceChannel | None:
+    query = select(WorkspaceChannel).where(
+        WorkspaceChannel.workspace_id == workspace_id,
+        WorkspaceChannel.channel_id == channel_id,
+    )
+    record = db.execute(query).scalar_one_or_none()
+    logger.info(
+        "crud_get_channel_by_id workspace_id=%s channel_id=%s found=%s",
+        workspace_id,
+        channel_id,
+        record is not None,
+    )
+    return record
+
+
 def upsert_channel(
     db: Session,
     workspace_id: str,
@@ -60,6 +75,71 @@ def upsert_channel(
         is_archived,
     )
     return record
+
+
+def upsert_channel_by_id(
+    db: Session,
+    workspace_id: str,
+    channel_id: str,
+    name: str,
+    is_archived: bool = False,
+) -> WorkspaceChannel:
+    normalized_name = normalize_channel_name(name)
+    record = get_channel_by_id(db=db, workspace_id=workspace_id, channel_id=channel_id)
+    created = False
+
+    if record is None:
+        created = True
+        record = WorkspaceChannel(
+            workspace_id=workspace_id,
+            channel_id=channel_id,
+            name=normalized_name,
+            is_archived=is_archived,
+        )
+        db.add(record)
+    else:
+        record.name = normalized_name
+        record.is_archived = is_archived
+
+    db.commit()
+    db.refresh(record)
+    logger.info(
+        "crud_upsert_channel_by_id workspace_id=%s channel_id=%s normalized_name=%s created=%s archived=%s",
+        workspace_id,
+        channel_id,
+        normalized_name,
+        created,
+        is_archived,
+    )
+    return record
+
+
+def set_channel_archived_by_id(
+    db: Session,
+    workspace_id: str,
+    channel_id: str,
+    is_archived: bool,
+) -> bool:
+    record = get_channel_by_id(db=db, workspace_id=workspace_id, channel_id=channel_id)
+    if record is None:
+        logger.info(
+            "crud_set_channel_archived_by_id workspace_id=%s channel_id=%s found=%s",
+            workspace_id,
+            channel_id,
+            False,
+        )
+        return False
+
+    record.is_archived = is_archived
+    db.commit()
+    logger.info(
+        "crud_set_channel_archived_by_id workspace_id=%s channel_id=%s found=%s archived=%s",
+        workspace_id,
+        channel_id,
+        True,
+        is_archived,
+    )
+    return True
 
 
 def count_channels(db: Session, workspace_id: str) -> int:

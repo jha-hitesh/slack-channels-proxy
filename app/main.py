@@ -5,6 +5,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from app.api.routes import router as api_router
+from app.api.slack_events import router as slack_events_router
 from app.core.db import init_db
 from app.core.docs_auth import verify_docs_auth
 from app.core.settings import settings
@@ -25,6 +26,7 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+app.include_router(slack_events_router)
 
 
 @app.on_event("startup")

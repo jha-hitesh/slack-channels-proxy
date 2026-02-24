@@ -53,6 +53,37 @@ Build a backend proxy between clients and Slack that supports channel lookup and
 - Integration tests for success and existing-channel-create path.
 - Smoke test with docker-compose stack.
 
+## Feature Plan: Slack Event Subscriptions
+
+### Objective
+Ingest Slack Events API callbacks for channel lifecycle updates and keep local SQLite channel state in sync after signature verification.
+
+### Subtasks
+
+#### E1) Slack signature verification
+- Add signature verification for `X-Slack-Signature` and `X-Slack-Request-Timestamp`.
+- Reject stale and invalid requests with `401`.
+- Test cases:
+  - valid signature is accepted.
+  - invalid signature is rejected.
+  - stale timestamp is rejected.
+
+#### E2) Add Slack events webhook endpoint
+- Add `POST /slack/events`.
+- Support `url_verification` challenge responses.
+- Accept `event_callback` payloads and ignore unsupported types safely.
+- Test cases:
+  - URL verification returns challenge payload.
+  - unsupported event callback returns `{ok: true}` without failure.
+
+#### E3) Channel event persistence updates
+- Handle `channel_created`, `channel_deleted`, and `channel_rename`.
+- Upsert/modify records by `workspace_id + channel_id` to keep rename/archive updates consistent.
+- Test cases:
+  - `channel_created` inserts/updates channel.
+  - `channel_deleted` marks existing channel archived.
+  - `channel_rename` updates channel name in place.
+
 ## Initial Task Breakdown With Test Cases
 
 ### Task A: Config and app skeleton

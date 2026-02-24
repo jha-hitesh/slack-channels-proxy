@@ -102,3 +102,34 @@ sequenceDiagram
     C->>C: map to domain error
   end
 ```
+
+## Slack Events Subscription Flow
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as Slack Events API
+  participant P as Proxy API (FastAPI)
+  participant D as SQLite DB
+
+  S->>P: POST /slack/events
+  S->>P: X-Slack-Signature + X-Slack-Request-Timestamp
+  P->>P: verify signature + timestamp tolerance
+  alt Signature invalid or stale
+    P-->>S: 401 invalid signature
+  else Valid signature
+    alt type=url_verification
+      P-->>S: 200 {challenge}
+    else type=event_callback
+      alt event.type=channel_created
+        P->>D: upsert by workspace_id + channel_id
+      else event.type=channel_rename
+        P->>D: update name by workspace_id + channel_id
+      else event.type=channel_deleted
+        P->>D: set is_archived=true by workspace_id + channel_id
+      else unsupported type
+        P->>P: ignore
+      end
+      P-->>S: 200 {ok:true}
+    end
+  end
+```

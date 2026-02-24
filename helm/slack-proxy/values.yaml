@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/jha-hitesh/slack-channels-proxy
-  tag: latest
+  tag: v0.1.0
   pullPolicy: IfNotPresent
 
 service:
@@ -29,6 +29,8 @@ env:
   docsUsername: admin
   docsPassword: admin
   slackBaseUrl: https://slack.com/api
+  slackSigningSecret: ""
+  slackSignatureToleranceSeconds: "300"
   databaseUrl: sqlite:///./data/slack_proxy.db
   syncLockStaleAfterMinutes: "10"
 

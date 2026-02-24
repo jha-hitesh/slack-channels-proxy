@@ -11,7 +11,13 @@ from app.clients.slack import (
 from app.core.db import SessionLocal
 from app.core.settings import settings
 from app.cruds.sync_locks import get_sync_status, release_sync_lock, try_acquire_sync_lock
-from app.cruds.workspace_channels import count_channels, get_channel_by_name, upsert_channel
+from app.cruds.workspace_channels import (
+    count_channels,
+    get_channel_by_name,
+    set_channel_archived_by_id,
+    upsert_channel,
+    upsert_channel_by_id,
+)
 from app.schemas.channel import ChannelResponse
 from app.utils.channel_names import normalize_channel_name
 
@@ -167,6 +173,68 @@ def run_background_channel_sync(workspace_id: str, bot_token: str) -> None:
             )
 
 
+def handle_slack_channel_event(db: Session, payload: dict) -> None:
+    team_id = payload.get("team_id")
+    event = payload.get("event")
+    if not isinstance(team_id, str) or not team_id:
+        logger.info("slack_channel_event_ignored reason=missing_team_id")
+        return
+    if not isinstance(event, dict):
+        logger.info("slack_channel_event_ignored reason=missing_event")
+        return
+
+    event_type = event.get("type")
+    if event_type in {"channel_created", "channel_rename"}:
+        channel = event.get("channel")
+        if not isinstance(channel, dict):
+            logger.info("slack_channel_event_ignored type=%s reason=missing_channel_payload", event_type)
+            return
+
+        channel_id = channel.get("id")
+        channel_name = channel.get("name")
+        if not isinstance(channel_id, str) or not isinstance(channel_name, str):
+            logger.info("slack_channel_event_ignored type=%s reason=invalid_channel_payload", event_type)
+            return
+
+        upsert_channel_by_id(
+            db=db,
+            workspace_id=team_id,
+            channel_id=channel_id,
+            name=channel_name,
+            is_archived=bool(channel.get("is_archived", False)),
+        )
+        logger.info(
+            "slack_channel_event_processed type=%s workspace_id=%s channel_id=%s",
+            event_type,
+            team_id,
+            channel_id,
+        )
+        return
+
+    if event_type == "channel_deleted":
+        channel_id = event.get("channel")
+        if not isinstance(channel_id, str):
+            logger.info("slack_channel_event_ignored type=%s reason=missing_channel_id", event_type)
+            return
+
+        updated = set_channel_archived_by_id(
+            db=db,
+            workspace_id=team_id,
+            channel_id=channel_id,
+            is_archived=True,
+        )
+        logger.info(
+            "slack_channel_event_processed type=%s workspace_id=%s channel_id=%s updated=%s",
+            event_type,
+            team_id,
+            channel_id,
+            updated,
+        )
+        return
+
+    logger.info("slack_channel_event_ignored reason=unsupported_event_type type=%s", event_type)
+
+
 __all__ = [
     "ChannelAlreadyExistsError",
     "ChannelNotFoundError",
@@ -175,6 +243,7 @@ __all__ = [
     "WorkspaceResolutionError",
     "create_channel_in_slack",
     "get_workspace_sync_status",
+    "handle_slack_channel_event",
     "get_channel_by_name_from_db",
     "resolve_workspace_id",
     "run_background_channel_sync",
