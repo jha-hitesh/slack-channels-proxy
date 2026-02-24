@@ -10,6 +10,7 @@ Slack Proxy is a lightweight service that exposes a stable API for Slack channel
 ## What It Does
 - `GET /channels/{name}`: returns channel info by name from local persistence for the calling workspace.
 - `POST /channels`: creates a channel by name through Slack API.
+- `POST /slack/events`: receives Slack Event Subscriptions callbacks for channel lifecycle updates.
 - Existing channel create behavior:
   - fetches channels from Slack,
   - upserts records into SQLite,
@@ -37,6 +38,8 @@ cp .env.example .env
 
 Key variables:
 - `SLACK_BASE_URL` (optional, default: `https://slack.com/api`)
+- `SLACK_SIGNING_SECRET` (required for verifying `/slack/events` requests)
+- `SLACK_SIGNATURE_TOLERANCE_SECONDS` (optional, default: `300`)
 - `DATABASE_URL` (optional, default: `sqlite:///./data/slack_proxy.db`)
 - `SYNC_LOCK_STALE_AFTER_MINUTES` (optional, default: `10`)
 - `DOCS_USERNAME` (required for API docs auth)
@@ -102,6 +105,10 @@ helm upgrade --install slack-proxy ./helm/slack-proxy \
   - resolves workspace from Slack `auth.test`.
   - creates channel when absent.
   - on "already exists", syncs workspace channels from Slack, upserts local DB, then returns existing id.
+- `POST /slack/events`
+  - verifies Slack signature/timestamp headers.
+  - returns challenge for Slack URL verification.
+  - processes `channel_created`, `channel_deleted`, and `channel_rename` to keep local cache current.
 
 ## Repository Layout
 ```text

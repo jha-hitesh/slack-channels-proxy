@@ -38,6 +38,10 @@ spec:
               value: {{ .Values.env.docsPassword | quote }}
             - name: SLACK_BASE_URL
               value: {{ .Values.env.slackBaseUrl | quote }}
+            - name: SLACK_SIGNING_SECRET
+              value: {{ .Values.env.slackSigningSecret | quote }}
+            - name: SLACK_SIGNATURE_TOLERANCE_SECONDS
+              value: {{ .Values.env.slackSignatureToleranceSeconds | quote }}
             - name: DATABASE_URL
               value: {{ .Values.env.databaseUrl | quote }}
             - name: SYNC_LOCK_STALE_AFTER_MINUTES

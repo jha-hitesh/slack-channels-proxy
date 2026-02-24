@@ -1,0 +1,30 @@
+display_information:
+  name: Slack Channels Proxy
+  description: Listens for channel events in your workspace to update slack channel cache
+  background_color: "#2C2D30"
+
+features:
+  bot_user:
+    display_name: Slack-Channels-Proxy
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - groups:read
+
+settings:
+  event_subscriptions:
+    request_url: https://your-domain.com/slack/events
+    bot_events:
+      - channel_created
+      - channel_deleted
+      - channel_rename
+
+  interactivity:
+    is_enabled: false
+
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
